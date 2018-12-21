@@ -1,0 +1,120 @@
+---
+title: "Bayesian Inference Using Gibbs Sampling"
+author: "Edward Moradian"
+date: "October 16, 2018"
+output:
+  word_document: default
+  html_document:
+    df_print: paged
+---
+
+# Plot the posterior and prior density functions
+
+```{r}
+x <- seq(1,80,length=80); top <- .12
+plot(x,dgamma(x,shape=5,scale=6),type="l",xlab=expression(theta),
+ylab="Prior and Posterior Density",ylim=c(0,top))
+lines(x,dgamma(x,shape=47,scale=6/7),lty=2)
+legend(.2,top,cex=1.2,legend =c("Beta(5,6) (Prior Distribution)","Beta(47,6/7) (Posterior Dsitribution)"),lty=1:2)
+```
+
+# Find the 95% equal tail and Highest Posterior Density (HPD) credible intervals
+
+The Bayesian Equal-Tail Credible Interval is (29.60, 52.59) with a length of 22.99.
+```{r}
+Eq_lower<-qgamma(0.025,shape=47,scale=6/7)
+Eq_upper<-qgamma(1-0.025,shape=47,scale=6/7)
+print(c(Eq_lower,Eq_upper))
+length = Eq_upper - Eq_lower
+print(length)
+```
+
+The Bayesian Highest Posterior Density (HPD) Credible Interval is (29.09, 51.97) with a length of 22.88.  This is a slightly narrorwer credible interval than the Equal-Tail Credible Interval.
+```{r}
+library("Smisc")
+
+dens<-function(x){dgamma(x,shape=47,scale=6/7)}
+dist<- function(x){pgamma(x,shape=47,scale=6/7)}
+int<- hpd(dens, c(0,1000), prob = .95, cdf= dist)
+print(int)
+```
+
+# Use Gibbs sampling to obtain the 95% equal tail and highest posterior density (HPD) credible intervals
+
+```{r, warning=F, message=F}
+library(rjags)
+library(runjags)
+library(coda)
+```
+
+## Step 1: Data settings
+
+The count data for the Poisson likelihood has the summation of Xi as 42.  N is equal to 1.
+```{r} 
+data<- c(rep(42,1))
+y <- data
+Ntotal <- length(data) 
+```
+
+Bundle the data for JAGS
+```{r}
+dataList= list(
+	y= y ,
+	Ntotal = Ntotal
+)
+```
+
+## Step 2: Specify the model for JAGS
+
+For this model, we input in JAGS a prior of gamma(5,6) and a Poisson likelihood.
+```{r}
+modelString = "  
+
+model {
+	for (i in 1:Ntotal) {
+		# likelihood of each data point, where theta is our parameter of interest
+		y[i] ~ dpois(theta) 
+	}
+
+	# now specify a prior function to the parameter theta
+	theta ~ dgamma(5,1/6)
+}
+
+"
+writeLines( modelString, con="PregnancyModel.txt")
+```
+
+## Step 3: Initialize the chains
+
+Set up the initial values for parameters.  Here an MLE of 42 is chosen as the MLE of the Poisson likelihood is summation of Xi divided by n. This equals 42/1.
+```{r}
+theta_init<- 42
+initsList<- list(theta = theta_init)
+```
+
+## Step 4: Generate Chains in JAGS
+
+The burn-in is 500 and the total number of repetitions is 500.
+```{r}
+jagsModel = jags.model (file="PregnancyModel.txt", data= dataList, inits= initsList, n.chains=3, n.adapt= 500)
+update( jagsModel, n.iter=500) # Total number of repetitions is 500
+codaSamples= coda.samples (jagsModel, variable.names=c("theta"), n.iter=5000)
+str(codaSamples)
+```
+
+## Step 5: Examine chains
+
+Using Gibbs sampling, the Bayesian Equal-Tail Credible Interval is (29.70, 52.54) with a length of 22.84.  The Bayesian Highest Posterior Density (HPD) Credible Interval is (29.41, 52.06) with a length of 22.65.  This is a slightly narrorwer credible interval than the Equal-Tail Credible Interval.
+The posterior distribution mean is 40.26.  
+These statistics are reflected in the visualization of the posterior gamma distribution.
+```{r}
+plot(codaSamples, trace = FALSE, density = TRUE)
+summary(codaSamples) # For equal-tail credible interval
+codaSamples2<-mcmc(do.call(rbind, codaSamples))
+HPDinterval(codaSamples2, prob=.95)
+```
+
+
+
+
+
